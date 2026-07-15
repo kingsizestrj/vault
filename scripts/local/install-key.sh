@@ -38,8 +38,9 @@ mkdir -p "$SSH_DIR"
 chmod 700 "$SSH_DIR"
 
 # ─── 1. ensure ssh-agent is running ─────────────
+# Use the numeric uid (id -u), not $USER, which Termux often leaves unset.
 note "starting ssh-agent"
-if ! pgrep -u "$USER" ssh-agent >/dev/null 2>&1; then
+if ! pgrep -u "$(id -u)" ssh-agent >/dev/null 2>&1; then
   ssh-agent -s | head -2 >> "$SSH_DIR/agent.env"
 fi
 # shellcheck disable=SC1091
