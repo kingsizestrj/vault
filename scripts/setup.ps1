@@ -60,6 +60,17 @@ function AskPassword($q) {
     $bstr = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($pwd)
     return [System.Runtime.InteropServices.Marshal]::PtrToStringAuto($bstr)
 }
+function NewEd25519KeyNoPass($path) {
+    # Passing an empty passphrase to ssh-keygen differs by PowerShell edition:
+    # PS 7+ passes -N "" as a real empty string; Windows PowerShell 5.1 needs
+    # -N '""'. Getting this wrong bakes a literal 2-character passphrase ("")
+    # into the key, which then breaks passwordless auth.
+    if ($PSVersionTable.PSVersion.Major -ge 6) {
+        ssh-keygen -t ed25519 -f $path -N "" -q
+    } else {
+        ssh-keygen -t ed25519 -f $path -N '""' -q
+    }
+}
 
 Banner
 
@@ -151,11 +162,15 @@ if (Test-Path $keyPath) {
         "2" {
             Note "generating key (you will be asked for a passphrase)"
             $pass = AskPassword "passphrase (empty for none)"
-            ssh-keygen -t ed25519 -f $keyPath -N $pass
+            if ([string]::IsNullOrEmpty($pass)) {
+                NewEd25519KeyNoPass $keyPath   # empty input => no-passphrase key
+            } else {
+                ssh-keygen -t ed25519 -f $keyPath -N $pass -q
+            }
         }
         default {
             Note "generating key with no passphrase"
-            ssh-keygen -t ed25519 -f $keyPath -N '""' -q
+            NewEd25519KeyNoPass $keyPath
         }
     }
     if ($LASTEXITCODE -ne 0) { Die "key setup failed" }
