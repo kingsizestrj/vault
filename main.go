@@ -22,6 +22,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 
 	"github.com/user/sshvault/internal/git"
@@ -31,7 +32,9 @@ import (
 	"github.com/user/sshvault/internal/vault"
 )
 
-const version = "1.0.0"
+// version is a var (not a const) so release builds can stamp it via
+// -ldflags "-X main.version=...". See the Makefile.
+var version = "1.0.0"
 
 func main() {
 	flag.Usage = usage
@@ -218,7 +221,11 @@ func addHost() error {
 
 	p := 0
 	if port != "" {
-		fmt.Sscanf(port, "%d", &p)
+		n, err := strconv.Atoi(port)
+		if err != nil || n < 1 || n > 65535 {
+			return fmt.Errorf("invalid port %q (want 1-65535)", port)
+		}
+		p = n
 	}
 
 	f.Upsert(vault.Host{

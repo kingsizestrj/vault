@@ -22,6 +22,26 @@ func TestHost_Target(t *testing.T) {
 	}
 }
 
+func TestHost_SSHArg(t *testing.T) {
+	// SSHArg is the ssh destination and must never carry a :port suffix,
+	// regardless of the port, because ssh receives the port via -p.
+	cases := []struct {
+		h    Host
+		want string
+	}{
+		{Host{User: "deploy", Host: "10.0.1.10"}, "deploy@10.0.1.10"},
+		{Host{User: "deploy", Host: "10.0.1.10", Port: 22}, "deploy@10.0.1.10"},
+		{Host{User: "ubuntu", Host: "stg.example.com", Port: 2222}, "ubuntu@stg.example.com"},
+		{Host{Host: "h"}, "h"},
+		{Host{Host: "h", Port: 5000}, "h"},
+	}
+	for _, c := range cases {
+		if got := c.h.SSHArg(); got != c.want {
+			t.Errorf("SSHArg() for %+v = %q, want %q", c.h, got, c.want)
+		}
+	}
+}
+
 func TestHost_Match(t *testing.T) {
 	h := Host{
 		Alias: "prod-web",
@@ -75,6 +95,19 @@ func TestFile_Delete(t *testing.T) {
 	}
 	if f.Delete("a") {
 		t.Error("second delete should fail")
+	}
+}
+
+func TestFile_Delete_CaseInsensitive(t *testing.T) {
+	// Delete must match the same way Find/connect do, so `remove PROD-WEB`
+	// removes the host you can connect to with `sshvault prod-web`.
+	f := New()
+	f.Upsert(Host{Alias: "prod-web", Host: "h"})
+	if !f.Delete("PROD-WEB") {
+		t.Error("delete should be case-insensitive")
+	}
+	if _, ok := f.Find("prod-web"); ok {
+		t.Error("host should be gone after case-insensitive delete")
 	}
 }
 

@@ -101,7 +101,9 @@ func (m *model) applyFilter() {
 		m.cursor = 0
 		return
 	}
-	out := m.hosts[:0]
+	// A fresh slice — NOT m.hosts[:0], which shares m.hosts' backing array and
+	// would overwrite the master list in place as we append matches.
+	out := make([]vault.Host, 0, len(m.hosts))
 	for _, h := range m.hosts {
 		if h.Match(m.query) {
 			out = append(out, h)

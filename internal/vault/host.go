@@ -40,9 +40,17 @@ func (h Host) Target() string {
 	return hp
 }
 
-// SSHArg returns the user@host[:port] string used as the ssh destination.
+// SSHArg returns the ssh destination: user@host (never with a :port suffix).
+//
+// The port is passed separately via `ssh -p`. It must NOT appear here: OpenSSH
+// treats a "host:port" string in a bare (non-URI) destination as a literal
+// hostname, so `ssh -p 2222 user@host:2222` fails with "Could not resolve
+// hostname host:2222". Target() keeps the :port form for display only.
 func (h Host) SSHArg() string {
-	return h.Target()
+	if h.User != "" {
+		return h.User + "@" + h.Host
+	}
+	return h.Host
 }
 
 // Match is a case-insensitive substring match against the fuzzy filter.
@@ -102,11 +110,13 @@ func (f *File) Upsert(h Host) {
 	f.Hosts[h.Alias] = h
 }
 
-// Delete removes a host by alias.
+// Delete removes a host by alias (case-insensitive, matching Find/connect).
 func (f *File) Delete(alias string) bool {
-	if _, ok := f.Hosts[alias]; !ok {
-		return false
+	for a := range f.Hosts {
+		if strings.EqualFold(a, alias) {
+			delete(f.Hosts, a)
+			return true
+		}
 	}
-	delete(f.Hosts, alias)
-	return true
+	return false
 }
