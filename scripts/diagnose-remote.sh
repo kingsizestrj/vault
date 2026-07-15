@@ -1,113 +1,108 @@
 #!/usr/bin/env bash
 # diagnose-remote.sh
-# Connect to a server with password and report EVERYTHING that could be wrong
-# with public-key auth. Output is grep-friendly.
+# Connect to a server and report EVERYTHING that could be wrong with
+# public-key auth. Output is grep-friendly.
 #
 # Usage:
-#   ./diagnose-remote.sh umbrel@192.168.18.238
-set -euo pipefail
+#   ./diagnose-remote.sh user@host
+#   ./diagnose-remote.sh user@host -p 2222     # (extra ssh opts after the host)
+#
+# The password (if needed) is asked at most ONCE: all checks reuse a single
+# multiplexed ssh connection. The password is never placed on a command line.
+set -uo pipefail
 
-[ $# -ge 1 ] || { sed -n '2,8p' "$0"; exit 1; }
-TARGET="$1"
+[ $# -ge 1 ] || { sed -n '2,9p' "$0"; exit 1; }
+TARGET="$1"; shift
+EXTRA_OPTS=("$@")   # any extra ssh options (e.g. -p 2222)
 
 note() { echo "==> $*"; }
 
-# Check if we have sshpass or need to ask the user
-PW=""
+# One multiplexed connection, reused by every check. ControlPersist keeps it
+# alive briefly so we authenticate once. %r/%h/%p are per-target so parallel
+# runs don't collide.
+CTL="${TMPDIR:-/tmp}/sshvault-diag-$$-%r@%h-%p"
+SSH_OPTS=(-o "ControlMaster=auto" -o "ControlPath=$CTL" -o "ControlPersist=120"
+          -o "StrictHostKeyChecking=accept-new" -o "ConnectTimeout=10" "${EXTRA_OPTS[@]}")
+
+cleanup() { ssh -o "ControlPath=$CTL" -O exit "$TARGET" 2>/dev/null || true; }
+trap cleanup EXIT
+
+# --- open the master connection (the only password prompt) ---------------
+note "opening connection to $TARGET"
 if command -v sshpass >/dev/null 2>&1; then
-  read -s -p "password for $TARGET: " PW; echo
+  read -rsp "password for $TARGET (blank = use key/agent): " PW; echo
+  if [ -n "$PW" ]; then
+    # sshpass -e reads the password from the SSHPASS env var, so it never
+    # appears in the process list (unlike sshpass -p "$PW").
+    SSHPASS="$PW" sshpass -e ssh "${SSH_OPTS[@]}" "$TARGET" true \
+      || { note "could not open connection"; exit 1; }
+    unset PW SSHPASS
+  else
+    ssh "${SSH_OPTS[@]}" "$TARGET" true || { note "could not open connection"; exit 1; }
+  fi
+else
+  note "sshpass not installed — you'll be asked for the password ONCE (connection is reused)"
+  ssh "${SSH_OPTS[@]}" "$TARGET" true || { note "could not open connection"; exit 1; }
 fi
+
+# Every subsequent call reuses the master: no password, no re-prompt.
+rssh() { ssh "${SSH_OPTS[@]}" "$TARGET" "$@"; }
 
 note "1. who am I on the server?"
-if [ -n "$PW" ]; then
-  sshpass -p "$PW" ssh -o StrictHostKeyChecking=accept-new "$TARGET" 'whoami; id; uname -a'
+rssh 'whoami; id; uname -a'
+
+note "2. sshd auth settings (may be unreadable without root)"
+rssh '
+  echo "    default AuthorizedKeysFile: ~/.ssh/authorized_keys, ~/.ssh/authorized_keys2"
+  echo "    sshd_config (non-comment auth lines):"
+  grep -iE "^(PubkeyAuthentication|PermitRootLogin|PasswordAuthentication|AllowUsers|AllowGroups|AuthorizedKeysFile|AuthorizedKeysCommand|AuthorizedPrincipalsFile|ChallengeResponseAuthentication|UsePAM)" /etc/ssh/sshd_config 2>/dev/null | grep -v "^#" || echo "      (cannot read sshd_config as non-root)"
+  echo "    drop-in dir /etc/ssh/sshd_config.d/:"
+  ls /etc/ssh/sshd_config.d/ 2>/dev/null | sed "s/^/      /" || echo "      (none)"
+'
+
+note "3. the authorized_keys file + home/dir perms"
+rssh '
+  echo "    exists?  $(test -f ~/.ssh/authorized_keys && echo yes || echo NO)"
+  echo "    ak perms: $(stat -c "%a %U:%G" ~/.ssh/authorized_keys 2>/dev/null || stat -f "%Lp %Su:%Sg" ~/.ssh/authorized_keys 2>/dev/null)"
+  echo "    ak lines: $(wc -l < ~/.ssh/authorized_keys 2>/dev/null || echo N/A)"
+  echo "    ~/.ssh:  $(stat -c "%a %U:%G" ~/.ssh 2>/dev/null || stat -f "%Lp %Su:%Sg" ~/.ssh 2>/dev/null)"
+  echo "    ~ home:  $(stat -c "%a %U:%G" ~ 2>/dev/null || stat -f "%Lp %Su:%Sg" ~ 2>/dev/null)"
+  echo "    (sshd wants authorized_keys <= 600 and ~/.ssh <= 700, home not group/other-writable)"
+'
+
+note "4. is our public key already in authorized_keys?"
+PUB=$(cat ~/.ssh/id_ed25519.pub 2>/dev/null || true)
+if [ -n "$PUB" ]; then
+  rssh "grep -Fq '$PUB' ~/.ssh/authorized_keys 2>/dev/null && echo '    YES, our key is present' || echo '    NO, our key is NOT present'"
 else
-  ssh -o StrictHostKeyChecking=accept-new "$TARGET" 'whoami; id; uname -a'
+  echo "    (no local ~/.ssh/id_ed25519.pub to compare)"
 fi
 
-note "2. where does sshd look for authorized_keys?"
-if [ -r /etc/ssh/sshd_config ]; then
-  echo "    (we can't read this without root, but we'll check the user's file)"
-fi
-# Ask the server
-if [ -n "$PW" ]; then
-  sshpass -p "$PW" ssh "$TARGET" '
-    echo "    AuthorizedKeysFile (default if not set):"
-    echo "      ~/.ssh/authorized_keys"
-    echo "      ~/.ssh/authorized_keys2"
-    echo
-    echo "    PUBKEY_AUTH setting in /etc/ssh/sshd_config:"
-    grep -iE "^(PubkeyAuthentication|PermitRootLogin|PasswordAuthentication|AllowUsers|AllowGroups|AuthorizedKeysFile|AuthorizedKeysCommand|AuthorizedPrincipalsFile|ChallengeResponseAuthentication|UsePAM)" /etc/ssh/sshd_config 2>/dev/null | grep -v "^#" || echo "      (cannot read sshd_config as non-root)"
-    echo
-    echo "    sshd_config includes:"
-    ls /etc/ssh/sshd_config.d/ 2>/dev/null || echo "      (no drop-in dir)"
-  '
-else
-  ssh "$TARGET" '
-    grep -iE "^(PubkeyAuthentication|AllowUsers|AllowGroups|AuthorizedKeysFile)" /etc/ssh/sshd_config 2>/dev/null | grep -v "^#" || echo "      (cannot read sshd_config as non-root)"
-  '
-fi
+note "5. SELinux / AppArmor (can block sshd from reading the file)"
+rssh '
+  if command -v getenforce >/dev/null 2>&1; then
+    echo "    SELinux: $(getenforce 2>/dev/null)"
+    ls -lZ ~/.ssh/authorized_keys 2>/dev/null | awk "{print \$1, \$NF}" | sed "s/^/      /"
+  fi
+  if command -v aa-status >/dev/null 2>&1; then
+    echo "    AppArmor: $(aa-status 2>/dev/null | head -1)"
+  fi
+  command -v getenforce >/dev/null 2>&1 || command -v aa-status >/dev/null 2>&1 || echo "    (no SELinux/AppArmor tooling found)"
+'
 
-note "3. the authorized_keys file"
-if [ -n "$PW" ]; then
-  sshpass -p "$PW" ssh "$TARGET" '
-    echo "    path: \$HOME/.ssh/authorized_keys"
-    echo "    expanded: \$HOME = $HOME"
-    echo "    exists? $(test -f ~/.ssh/authorized_keys && echo yes || echo NO)"
-    echo "    perms: $(stat -c "%a %U:%G" ~/.ssh/authorized_keys 2>/dev/null || stat -f "%Lp %Su:%Sg" ~/.ssh/authorized_keys 2>/dev/null)"
-    echo "    sshd wants perms <= 600 and dir perms <= 755"
-    echo "    line count: $(wc -l < ~/.ssh/authorized_keys 2>/dev/null || echo N/A)"
-    echo "    last 3 lines (sanitized):"
-    tail -n 3 ~/.ssh/authorized_keys 2>/dev/null | sed "s/^/      /" || echo "      (cannot read)"
-    echo
-    echo "    ~/.ssh perms: $(stat -c "%a %U:%G" ~/.ssh 2>/dev/null || stat -f "%Lp %Su:%Sg" ~/.ssh 2>/dev/null)"
-    echo "    ~ perms:     $(stat -c "%a %U:%G" ~ 2>/dev/null || stat -f "%Lp %Su:%Sg" ~ 2>/dev/null)"
-  '
-else
-  ssh "$TARGET" '
-    echo "    exists? $(test -f ~/.ssh/authorized_keys && echo yes || echo NO)"
-    echo "    perms: $(stat -c "%a" ~/.ssh/authorized_keys 2>/dev/null)"
-    echo "    line count: $(wc -l < ~/.ssh/authorized_keys 2>/dev/null || echo N/A)"
-  '
-fi
-
-note "4. is our key actually in authorized_keys?"
-PUB=$(cat ~/.ssh/id_ed25519.pub 2>/dev/null || echo "")
-if [ -n "$PUB" ] && [ -n "$PW" ]; then
-  sshpass -p "$PW" ssh "$TARGET" "grep -Fxq '$PUB' ~/.ssh/authorized_keys && echo '    YES, our key is in the file' || echo '    NO, our key is NOT in the file'"
-elif [ -n "$PUB" ]; then
-  ssh "$TARGET" "grep -Fxq '$PUB' ~/.ssh/authorized_keys && echo '    YES' || echo '    NO'"
-fi
-
-note "5. selinux / apparmor (can block sshd from reading the file)"
-if [ -n "$PW" ]; then
-  sshpass -p "$PW" ssh "$TARGET" '
-    if command -v getenforce >/dev/null; then
-      echo "    SELinux: $(getenforce 2>/dev/null)"
-      echo "    SSH home context (if SELinux):"
-      ls -lZ ~/.ssh/authorized_keys 2>/dev/null | awk "{print \$1, \$NF}"
+note "6. recent auth-log lines"
+rssh '
+  for f in /var/log/auth.log /var/log/secure /var/log/audit/audit.log; do
+    if [ -r "$f" ]; then
+      echo "    tail of $f:"
+      tail -n 40 "$f" 2>/dev/null | grep -iE "(sshd|authentication|fail|publickey)" | tail -10 | sed "s/^/      /"
+      break
     fi
-    if command -v aa-status >/dev/null; then
-      echo "    AppArmor: $(aa-status 2>/dev/null | head -2)"
-    fi
-  '
-fi
+  done
+'
 
-note "6. recent auth log lines for our user"
-if [ -n "$PW" ]; then
-  sshpass -p "$PW" ssh "$TARGET" '
-    for f in /var/log/auth.log /var/log/secure /var/log/audit/audit.log; do
-      if [ -r "$f" ]; then
-        echo "    tail of $f:"
-        tail -n 20 "$f" 2>/dev/null | grep -iE "(sshd|authentication|fail|publickey)" | tail -10 | sed "s/^/      /"
-        break
-      fi
-    done
-  '
-fi
-
-note "7. what sshd is actually doing (verbose client log)"
-ssh -vvv -o BatchMode=yes -o PasswordAuthentication=no "$TARGET" true 2>&1 | \
+note "7. verbose client handshake (local ssh -vvv, key-only)"
+ssh -vvv -o BatchMode=yes -o PasswordAuthentication=no "${EXTRA_OPTS[@]}" "$TARGET" true 2>&1 | \
   grep -E "debug[0-9]: (Authentications|Server accepts|Trying private|sign|userauth)" | \
   sed 's/^/    /' || true
 

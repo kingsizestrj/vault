@@ -18,7 +18,7 @@ GIT_EMAIL="${GIT_EMAIL:-$(git config --global user.email 2>/dev/null || echo 'ss
 
 note() { echo "→ $*"; }
 ok()   { echo "✓ $*"; }
-die()  { echo "✗ $*" >&2; exit 1 }
+die()  { echo "✗ $*" >&2; exit 1; }
 
 # ─── 1. ensure ~/.ssh ────────────────────────────
 mkdir -p "$HOME/.ssh"; chmod 700 "$HOME/.ssh"

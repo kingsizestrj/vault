@@ -19,6 +19,16 @@ $ErrorActionPreference = "Stop"
 function Note($m) { Write-Host "-> $m" -ForegroundColor Cyan }
 function Ok($m)   { Write-Host "[OK] $m" -ForegroundColor Green }
 function Die($m)  { Write-Host "[X] $m" -ForegroundColor Red; exit 1 }
+function NewEd25519KeyNoPass($path) {
+    # Empty-passphrase handling differs by PowerShell edition: PS 7+ passes
+    # -N "" as a real empty string, Windows PowerShell 5.1 needs -N '""'.
+    # Getting it wrong bakes a literal 2-char passphrase into the key.
+    if ($PSVersionTable.PSVersion.Major -ge 6) {
+        ssh-keygen -t ed25519 -f $path -N "" -q
+    } else {
+        ssh-keygen -t ed25519 -f $path -N '""' -q
+    }
+}
 
 # --- paths ---
 $sshDir  = Join-Path $env:USERPROFILE ".ssh"
@@ -46,9 +56,8 @@ if (-not $AgentOnly) {
         Note "copying $KeyPath -> $keyPath"
         Copy-Item $KeyPath $keyPath -Force
     } elseif (-not (Test-Path $keyPath)) {
-        Note "generating new ed25519 key (press enter for empty passphrase)"
-        # -N "" sets empty passphrase; -q silences keygen output
-        ssh-keygen -t ed25519 -f $keyPath -N '""' -q
+        Note "generating new ed25519 key (no passphrase)"
+        NewEd25519KeyNoPass $keyPath
         if ($LASTEXITCODE -ne 0) { Die "ssh-keygen failed" }
     } else {
         Note "using existing $keyPath"

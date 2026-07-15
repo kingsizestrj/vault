@@ -64,16 +64,27 @@ sshvault pull        # pull from Gitea
 
 ```
 .
-├── sshvault              # binary (Linux x86_64)
-├── sshvault.exe          # binary (Windows)
+├── main.go               # CLI entrypoint
+├── internal/
+│   ├── vault/            # host model + TOML shape (hosts.toml)
+│   ├── store/            # atomic read/write of hosts.toml
+│   ├── git/              # thin wrapper around the git CLI
+│   ├── run/              # builds the ssh argv and execs it
+│   └── ui/               # bubbletea TUI host picker
+├── Makefile              # build / test / cross-compile
+├── go.mod / go.sum       # module + pinned deps
+├── sshvault              # prebuilt binary (Linux x86_64)
+├── sshvault.exe          # prebuilt binary (Windows)
 ├── sshvault.cmd          # Windows wrapper
 ├── hosts.toml            # the list of hosts
 ├── scripts/
 │   ├── setup.sh / setup.ps1          # interactive wizard (start here)
+│   ├── bootstrap.sh / bootstrap.ps1  # create the vault repo (first machine)
 │   ├── diagnose-remote.sh            # debug a server's ssh config
 │   ├── fix-remote.sh                 # repair authorized_keys on a server
 │   ├── local/install-key.sh / .ps1   # install private key locally
 │   └── remote/install-key-remote.sh / .ps1  # install pub key on server
+├── LICENSE
 └── README.md
 ```
 
@@ -112,9 +123,35 @@ cd ~/.ssh/vault
 | Windows: `running scripts is disabled` | `Set-ExecutionPolicy RemoteSigned -Scope CurrentUser` |
 | Windows: `cannot be loaded, not digitally signed` | Prefix with `powershell -ExecutionPolicy Bypass -File ...` |
 
+## Build from source
+
+`sshvault` is a small Go program (no CGo). You need Go 1.19+.
+
+```bash
+# build a binary for the current OS/arch
+make build          # -> ./sshvault
+./sshvault version
+
+# run the tests
+make test
+
+# cross-compile every target into dist/
+make all
+```
+
+The committed `sshvault` / `sshvault.exe` binaries are produced from this
+source; `setup.sh` will build from source automatically when no prebuilt
+binary matches your OS/arch and a Go toolchain is present. CI
+(`.github/workflows/ci.yml`) runs gofmt, `go vet`, tests, and the
+cross-compile matrix on every push.
+
 ## Security notes
 
 - Repo must be **private** — it has IP addresses and metadata
 - Never commit the private key to this repo
 - Keep a backup of `id_ed25519` somewhere safe (password manager, encrypted USB)
 - Rotate keys every 6-12 months
+
+## License
+
+[MIT](LICENSE).
