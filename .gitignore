@@ -1,9 +1,30 @@
-# alternative binaries - keep just the canonical ones
+# ── Go build artifacts ────────────────────────────
+# `make all` cross-compiles here; never commit the matrix output.
+dist/
+# local build/verify scratch binaries
+sshvault-verify
+*.test
+*.out
+coverage*
+
+# ── alternative prebuilt binaries ─────────────────
+# We commit only the canonical `sshvault` (linux) + `sshvault.exe` (windows).
+# Other arches are produced on demand via `make all` / CI releases.
+sshvault-linux-amd64
+sshvault-linux-arm64
 sshvault-darwin-amd64
 sshvault-darwin-arm64
-sshvault-linux-arm64
+sshvault-windows-amd64.exe
 
-# editor
+# ── secrets / runtime (never commit) ──────────────
+# Private keys and ssh-agent env must never land in the vault repo.
+id_ed25519
+id_rsa
+id_ecdsa
+*.pem
+agent.env
+
+# ── editor ────────────────────────────────────────
 .vscode/
 .idea/
 *.swp
