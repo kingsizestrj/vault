@@ -1,7 +1,9 @@
 .PHONY: build test all clean install run
 
 BINARY := sshvault
-VERSION := $(shell git describe --tags --always 2>/dev/null || echo "dev")
+# A git tag (e.g. v1.0.0) drives the version; with no tags at all, fall back to
+# the baked-in default so `make build` reproduces the shipped binary's version.
+VERSION := $(shell git describe --tags 2>/dev/null || echo "1.0.0")
 LDFLAGS := -ldflags="-s -w -X main.version=$(VERSION)"
 
 build:
