@@ -192,7 +192,6 @@ else
       [ -f "$BACKUP" ] || die "not found: $BACKUP"
       note "installing $BACKUP -> $KEY"
       cp "$BACKUP" "$KEY"
-      chmod 600 "$KEY"
       [ -f "$PUB" ] || ssh-keygen -y -f "$KEY" > "$PUB"
       ;;
     2)
@@ -204,11 +203,16 @@ else
       ssh-keygen -t ed25519 -f "$KEY" -N ""
       ;;
   esac
-  chmod 700 "$SSH_DIR"
-  chmod 644 "$PUB"
   ok "private: $KEY"
   ok "public:  $PUB"
 fi
+
+# Enforce strict permissions on every run — even when the key already existed.
+# Android/Termux can create files as 0660, and ssh refuses a key that is
+# group/other-readable ("UNPROTECTED PRIVATE KEY FILE ... will be ignored").
+chmod 700 "$SSH_DIR" 2>/dev/null || true
+chmod 600 "$KEY" 2>/dev/null || true
+[ -f "$PUB" ] && chmod 644 "$PUB" 2>/dev/null || true
 
 # ensure ssh-agent is running and key is loaded.
 # Use the numeric uid (id -u), not $USER, which Termux often leaves unset.

@@ -65,6 +65,9 @@ if [ "$AGENT_ONLY" -eq 0 ]; then
     note "using existing $KEY_PATH"
   fi
   [ -f "$PUB_PATH" ] || ssh-keygen -y -f "$KEY_PATH" > "$PUB_PATH"
+  # ssh refuses a group/other-readable private key; Android/Termux can create
+  # files as 0660, so enforce 0600 regardless of how the key got here.
+  chmod 600 "$KEY_PATH"
   chmod 644 "$PUB_PATH"
   ok "key: $KEY_PATH"
   ok "pub: $PUB_PATH"
