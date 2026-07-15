@@ -92,15 +92,40 @@ ok "in $(pwd)"
 
 # -- step 2 : install sshvault binary --------------------
 step 2 "install sshvault binary"
-# pick the right binary for this OS
-case "$(uname -s)" in
-  Linux)   BIN="sshvault-linux-amd64"  ;;
-  Darwin)  BIN="sshvault-darwin-arm64" ;;
-  *)       die "unsupported OS: $(uname -s)" ;;
+# pick a usable binary for this OS/arch. The repo ships the canonical
+# `sshvault` (Linux x86_64); per-arch names and macOS builds are optional.
+OS="$(uname -s)"
+case "$(uname -m)" in
+  x86_64|amd64)   GOARCH=amd64 ;;
+  aarch64|arm64)  GOARCH=arm64 ;;
+  *)              GOARCH="" ;;
 esac
-# fall back to amd64 on linux if arm64 not present
-if [ ! -f "$BIN" ] && [ "$BIN" = "sshvault-darwin-arm64" ]; then
-  [ -f "sshvault-darwin-amd64" ] && BIN="sshvault-darwin-amd64"
+
+BIN=""
+case "$OS" in
+  Linux)
+    CANDIDATES="sshvault-linux-$GOARCH"
+    [ "$GOARCH" = "amd64" ] && CANDIDATES="$CANDIDATES sshvault"
+    ;;
+  Darwin)
+    CANDIDATES="sshvault-darwin-$GOARCH sshvault-darwin-arm64 sshvault-darwin-amd64"
+    ;;
+  *)
+    die "unsupported OS: $OS"
+    ;;
+esac
+for c in $CANDIDATES; do
+  if [ -f "$c" ]; then BIN="$c"; break; fi
+done
+
+# No prebuilt binary for this OS/arch? Build one from source if we can.
+if [ -z "$BIN" ] && [ -f "main.go" ] && command -v go >/dev/null 2>&1; then
+  note "no prebuilt binary for $OS/$GOARCH — building from source (go build)"
+  if go build -ldflags "-s -w" -o sshvault-built . ; then
+    BIN="sshvault-built"; ok "built $BIN"
+  else
+    warn "go build failed"
+  fi
 fi
 
 TARGET="/usr/local/bin/sshvault"
@@ -196,7 +221,9 @@ while :; do
   PORT_ARG=""
   PORT=$(ask "port" "22")
   [ -n "$PORT" ] && [ "$PORT" != "22" ] && PORT_ARG="--port $PORT"
-  bash "$VAULT/scripts/remote/install-key-remote.sh" $PORT_ARG "$TARGET_HOST" || \
+  # host MUST come first: install-key-remote.sh reads $1 as the target,
+  # then parses flags. Passing --port before it aborts the sub-script.
+  bash "$VAULT/scripts/remote/install-key-remote.sh" "$TARGET_HOST" $PORT_ARG || \
     warn "install on $TARGET_HOST returned non-zero - fix it and re-run setup later"
   ask_yn "set up another server?" || break
 done
@@ -223,15 +250,40 @@ while :; do
   DESC=$(ask "description")
   TAGS=$(ask "tags (comma separated, e.g. prod,web,critical)")
 
-  # build TOML block
-  BLOCK="\n[hosts.${ALIAS}]\nuser = \"${USER_}\"\nhost = \"${HOST_}\"\nport = ${PORT:-22}\n"
-  [ -n "$DESC" ] && BLOCK="${BLOCK}desc = \"${DESC}\"\n"
-  if [ -n "$TAGS" ]; then
-    TAGS_TOML=$(echo "$TAGS" | tr ',' '\n' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' | awk '{printf "\"%s\", ", $0}' | sed 's/, $//')
-    BLOCK="${BLOCK}tags = [${TAGS_TOML}]\n"
-  fi
+  # validate the alias as a bare TOML key (avoids needing to quote the table
+  # header, and keeps aliases usable on the command line)
+  case "$ALIAS" in
+    *[!A-Za-z0-9_-]*|"") warn "alias must be [A-Za-z0-9_-]; skipping '$ALIAS'"; continue ;;
+  esac
+  # validate the port; fall back to 22 on empty/non-numeric input
+  case "${PORT:-22}" in
+    *[!0-9]*|"") PORT=22 ;;
+  esac
 
-  printf "$BLOCK" >> "$HOSTS_FILE"
+  # escape backslashes and double quotes for TOML string values so that
+  # user input can never break out of the quoted string (and never gets
+  # interpreted as a printf format).
+  esc() { printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g'; }
+
+  {
+    printf '\n[hosts.%s]\n' "$ALIAS"
+    printf 'user = "%s"\n' "$(esc "$USER_")"
+    printf 'host = "%s"\n' "$(esc "$HOST_")"
+    printf 'port = %s\n' "$PORT"
+    [ -n "$DESC" ] && printf 'desc = "%s"\n' "$(esc "$DESC")"
+    if [ -n "$TAGS" ]; then
+      TAGS_TOML=""
+      OLD_IFS=$IFS; IFS=','
+      for t in $TAGS; do
+        t=$(printf '%s' "$t" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+        [ -n "$t" ] || continue
+        TAGS_TOML="${TAGS_TOML}\"$(esc "$t")\", "
+      done
+      IFS=$OLD_IFS
+      TAGS_TOML=${TAGS_TOML%, }
+      [ -n "$TAGS_TOML" ] && printf 'tags = [%s]\n' "$TAGS_TOML"
+    fi
+  } >> "$HOSTS_FILE"
   ok "added: $ALIAS"
 done
 

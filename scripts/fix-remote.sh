@@ -7,7 +7,9 @@
 set -euo pipefail
 
 echo "==> current state of ~/.ssh"
-ls -la ~/.ssh 2>/dev/null || mkdir -p ~/.ssh && chmod 700 ~/.ssh && ls -la ~/.ssh
+if ! ls -la ~/.ssh 2>/dev/null; then
+  mkdir -p ~/.ssh && chmod 700 ~/.ssh && ls -la ~/.ssh
+fi
 echo
 
 echo "==> permissions on authorized_keys (if it exists)"
@@ -34,9 +36,14 @@ echo "    done"
 echo
 
 echo "==> final state"
-stat -c "    ~ = mode %a (%U:%G)" ~ 2>/dev/null
-stat -c "    ~/.ssh = mode %a (%U:%G)" ~/.ssh
-stat -c "    ~/.ssh/authorized_keys = mode %a (%U:%G), $(wc -l < ~/.ssh/authorized_keys) keys" ~/.ssh/authorized_keys
+akcount=$(wc -l < ~/.ssh/authorized_keys 2>/dev/null || echo 0)
+# GNU coreutils uses `stat -c`; macOS/BSD uses `stat -f`. Try both.
+stat -c "    ~ = mode %a (%U:%G)" ~ 2>/dev/null \
+  || stat -f "    ~ = mode %Lp (%Su:%Sg)" ~ 2>/dev/null
+stat -c "    ~/.ssh = mode %a (%U:%G)" ~/.ssh 2>/dev/null \
+  || stat -f "    ~/.ssh = mode %Lp (%Su:%Sg)" ~/.ssh 2>/dev/null
+stat -c "    ~/.ssh/authorized_keys = mode %a (%U:%G), $akcount keys" ~/.ssh/authorized_keys 2>/dev/null \
+  || stat -f "    ~/.ssh/authorized_keys = mode %Lp (%Su:%Sg), $akcount keys" ~/.ssh/authorized_keys 2>/dev/null
 echo
 echo "==> now retry from your machine:"
 echo "    ssh umbrel@192.168.18.238"
