@@ -3,6 +3,7 @@
 dist/
 # local build/verify scratch binaries
 sshvault-verify
+sshvault-built
 *.test
 *.out
 coverage*

@@ -50,10 +50,13 @@ warn()   { printf "  ${C_YELLOW}[!] %s${C_RST}\n" "$*"; }
 die()    { printf "  ${C_RED}[X] %s${C_RST}\n" "$*" >&2; exit 1; }
 ask() {
   local q="$1" def="${2:-}"
+  # Prompt goes to stderr: this function is called as VAR=$(ask ...), and
+  # $( ) captures stdout — a prompt on stdout would be swallowed into VAR
+  # (so the prompt is invisible AND the answer is polluted with prompt text).
   if [ -n "$def" ]; then
-    printf "  ${C_YELLOW}? %s [%s]: ${C_RST}" "$q" "$def"
+    printf "  ${C_YELLOW}? %s [%s]: ${C_RST}" "$q" "$def" >&2
   else
-    printf "  ${C_YELLOW}? %s: ${C_RST}" "$q"
+    printf "  ${C_YELLOW}? %s: ${C_RST}" "$q" >&2
   fi
   read -r ans
   if [ -z "$ans" ]; then echo "$def"; else echo "$ans"; fi
@@ -69,11 +72,11 @@ ask_yn() {
 }
 ask_secret() {
   local q="$1"
-  printf "  ${C_YELLOW}? %s: ${C_RST}" "$q"
+  printf "  ${C_YELLOW}? %s: ${C_RST}" "$q" >&2   # prompt to stderr, see ask()
   local ans
   if [ -t 0 ]; then
     read -rs ans
-    echo
+    echo >&2
   else
     read -r ans
   fi
