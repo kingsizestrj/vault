@@ -1,0 +1,10 @@
+# alternative binaries - keep just the canonical ones
+sshvault-darwin-amd64
+sshvault-darwin-arm64
+sshvault-linux-arm64
+
+# editor
+.vscode/
+.idea/
+*.swp
+*~
