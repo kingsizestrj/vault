@@ -5,10 +5,3 @@
     port = 22
     desc = "lab"
     tags = ["lab"]
-[hosts.umbrel]
-user = "umbrel"
-host = "192.168.1.2"
-port = 22
-desc = "Lab"
-tags = ["lab"]
-
