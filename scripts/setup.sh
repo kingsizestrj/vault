@@ -40,7 +40,7 @@ die()    { printf "  ${C_RED}[X] %s${C_RST}\n" "$*" >&2; exit 1; }
 ask() {
   local q="$1" def="${2:-}"
   if [ -n "$def" ]; then
-    printf "  ${C_YELLOW}? %s [$s]: ${C_RST}" "$q" "$def"
+    printf "  ${C_YELLOW}? %s [%s]: ${C_RST}" "$q" "$def"
   else
     printf "  ${C_YELLOW}? %s: ${C_RST}" "$q"
   fi
