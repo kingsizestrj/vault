@@ -17,6 +17,17 @@ set -euo pipefail
 SSH_DIR="$HOME/.ssh"
 VAULT="$SSH_DIR/vault"
 
+# Termux (Android) has no /usr/local/bin and no root/sudo; it installs into
+# $PREFIX/bin (already on PATH). Detect it and pick the right install dir.
+IS_TERMUX=0
+case "${PREFIX:-}" in *com.termux*) IS_TERMUX=1 ;; esac
+[ -n "${TERMUX_VERSION:-}" ] && IS_TERMUX=1
+if [ "$IS_TERMUX" = "1" ]; then
+  BINDIR="${PREFIX}/bin"
+else
+  BINDIR="/usr/local/bin"
+fi
+
 # -- colors / helpers -------------------------------------
 if [ -t 1 ] && command -v tput >/dev/null 2>&1; then
   C_CYAN="\033[36m"; C_GREEN="\033[32m"; C_YELLOW="\033[33m"; C_RED="\033[31m"; C_MAGENTA="\033[35m"; C_GRAY="\033[90m"; C_RST="\033[0m"
@@ -39,10 +50,13 @@ warn()   { printf "  ${C_YELLOW}[!] %s${C_RST}\n" "$*"; }
 die()    { printf "  ${C_RED}[X] %s${C_RST}\n" "$*" >&2; exit 1; }
 ask() {
   local q="$1" def="${2:-}"
+  # Prompt goes to stderr: this function is called as VAR=$(ask ...), and
+  # $( ) captures stdout — a prompt on stdout would be swallowed into VAR
+  # (so the prompt is invisible AND the answer is polluted with prompt text).
   if [ -n "$def" ]; then
-    printf "  ${C_YELLOW}? %s [%s]: ${C_RST}" "$q" "$def"
+    printf "  ${C_YELLOW}? %s [%s]: ${C_RST}" "$q" "$def" >&2
   else
-    printf "  ${C_YELLOW}? %s: ${C_RST}" "$q"
+    printf "  ${C_YELLOW}? %s: ${C_RST}" "$q" >&2
   fi
   read -r ans
   if [ -z "$ans" ]; then echo "$def"; else echo "$ans"; fi
@@ -58,11 +72,11 @@ ask_yn() {
 }
 ask_secret() {
   local q="$1"
-  printf "  ${C_YELLOW}? %s: ${C_RST}" "$q"
+  printf "  ${C_YELLOW}? %s: ${C_RST}" "$q" >&2   # prompt to stderr, see ask()
   local ans
   if [ -t 0 ]; then
     read -rs ans
-    echo
+    echo >&2
   else
     read -r ans
   fi
@@ -128,19 +142,20 @@ if [ -z "$BIN" ] && [ -f "main.go" ] && command -v go >/dev/null 2>&1; then
   fi
 fi
 
-TARGET="/usr/local/bin/sshvault"
+TARGET="$BINDIR/sshvault"
 if [ -f "$BIN" ]; then
-  if [ -w /usr/local/bin ] || command -v sudo >/dev/null 2>&1; then
+  if [ -w "$BINDIR" ]; then
     note "installing $BIN -> $TARGET"
-    if [ -w /usr/local/bin ]; then
-      cp "$BIN" "$TARGET"
-    else
-      sudo cp "$BIN" "$TARGET"
-    fi
+    cp "$BIN" "$TARGET"
     chmod +x "$TARGET"
     ok "installed: $TARGET"
+  elif command -v sudo >/dev/null 2>&1; then
+    note "installing $BIN -> $TARGET (via sudo)"
+    sudo cp "$BIN" "$TARGET"
+    sudo chmod +x "$TARGET"
+    ok "installed: $TARGET"
   else
-    warn "no write access to /usr/local/bin and no sudo; leaving binary in repo"
+    warn "no write access to $BINDIR and no sudo; leaving binary in repo"
     TARGET="$VAULT/sshvault"
     cp "$BIN" "$TARGET"
     chmod +x "$TARGET"
@@ -195,8 +210,9 @@ else
   ok "public:  $PUB"
 fi
 
-# ensure ssh-agent is running and key is loaded
-if ! pgrep -u "$USER" ssh-agent >/dev/null 2>&1; then
+# ensure ssh-agent is running and key is loaded.
+# Use the numeric uid (id -u), not $USER, which Termux often leaves unset.
+if ! pgrep -u "$(id -u)" ssh-agent >/dev/null 2>&1; then
   note "starting ssh-agent"
   ssh-agent -s | head -2 > "$SSH_DIR/agent.env"
 fi

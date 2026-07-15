@@ -123,6 +123,33 @@ cd ~/.ssh/vault
 | Windows: `running scripts is disabled` | `Set-ExecutionPolicy RemoteSigned -Scope CurrentUser` |
 | Windows: `cannot be loaded, not digitally signed` | Prefix with `powershell -ExecutionPolicy Bypass -File ...` |
 
+## Android (Termux)
+
+Works on [Termux](https://termux.dev/). Android is **arm64** and the prebuilt
+`sshvault` committed here is x86_64, so on the phone you build from source (Go is
+just a Termux package — it's quick):
+
+```bash
+pkg update && pkg install -y git openssh golang make procps
+git clone <your-gitea-url> ~/.ssh/vault
+cd ~/.ssh/vault
+./scripts/setup.sh     # detects Termux, builds arm64, installs to $PREFIX/bin
+```
+
+`setup.sh` auto-detects Termux: with no arm64 binary shipped it builds one from
+source, and it installs to `$PREFIX/bin` (already on your PATH) instead of
+`/usr/local/bin`, which doesn't exist on Android.
+
+Prefer to do it by hand?
+
+```bash
+make build && cp sshvault "$PREFIX/bin/" && sshvault version
+```
+
+Notes:
+- `procps` provides `pgrep` (used for the ssh-agent check).
+- Everything else — `git`, `ssh`, `ssh-keygen`, `ssh-copy-id`, the TUI — works as-is.
+
 ## Build from source
 
 `sshvault` is a small Go program (no CGo). You need Go 1.19+.
