@@ -1,7 +1,7 @@
 [hosts]
-  [hosts.umbrel]
-    user = "umbrel"
-    host = "192.168.18.238"
+  [hosts.test]
+    user = "teste"
+    host = "192.168.1.1"
     port = 22
     desc = "lab"
     tags = ["lab"]
