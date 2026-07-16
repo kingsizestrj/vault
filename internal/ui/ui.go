@@ -49,6 +49,7 @@ type model struct {
 	query    string
 	choice   *vault.Host
 	quitting bool
+	action   string // verb shown in the footer/title, e.g. "connect" or "copy key"
 }
 
 func (m model) Init() tea.Cmd { return nil }
@@ -125,7 +126,11 @@ func (m model) View() string {
 	var b strings.Builder
 	b.WriteString(titleStyle.Render(" sshvault "))
 	b.WriteString("  ")
-	b.WriteString(dimStyle.Render(fmt.Sprintf("%d hosts", len(m.hosts))))
+	status := fmt.Sprintf("%d hosts", len(m.hosts))
+	if m.action != "" && m.action != "connect" {
+		status += " · " + m.action + " mode"
+	}
+	b.WriteString(dimStyle.Render(status))
 	b.WriteString("\n\n")
 
 	if m.query == "" {
@@ -177,17 +182,28 @@ func (m model) View() string {
 		}
 	}
 
+	action := m.action
+	if action == "" {
+		action = "connect"
+	}
 	b.WriteString("\n")
-	b.WriteString(helpStyle.Render("  ↑↓/jk move · enter connect · type to filter · q quit"))
+	b.WriteString(helpStyle.Render(fmt.Sprintf("  ↑↓/jk move · enter %s · type to filter · q quit", action)))
 	return b.String()
 }
 
 // Run shows the menu and returns the selected host (nil if user quit).
 func Run(hosts []vault.Host) (*vault.Host, error) {
+	return Pick(hosts, "connect")
+}
+
+// Pick shows the menu with a custom action verb (used in the footer/title,
+// e.g. "connect" or "copy key") and returns the selected host (nil if the
+// user quit).
+func Pick(hosts []vault.Host, action string) (*vault.Host, error) {
 	if len(hosts) == 0 {
 		return nil, fmt.Errorf("no hosts in vault — run `sshvault add` to add one")
 	}
-	p := tea.NewProgram(model{hosts: hosts, filtered: hosts})
+	p := tea.NewProgram(model{hosts: hosts, filtered: hosts, action: action})
 	final, err := p.Run()
 	if err != nil {
 		return nil, err
