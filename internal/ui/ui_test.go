@@ -1,10 +1,35 @@
 package ui
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/user/sshvault/internal/vault"
 )
+
+// The picker's action verb (footer + title mode indicator) is configurable so
+// the same menu serves connect and copy-id.
+func TestView_ActionLabel(t *testing.T) {
+	hosts := []vault.Host{{Alias: "a", Host: "h"}}
+
+	copy := model{hosts: hosts, filtered: hosts, action: "copy key"}
+	v := copy.View()
+	if !strings.Contains(v, "copy key mode") {
+		t.Errorf("title should show the mode indicator; got:\n%s", v)
+	}
+	if !strings.Contains(v, "enter copy key") {
+		t.Errorf("footer should show the action verb; got:\n%s", v)
+	}
+
+	def := model{hosts: hosts, filtered: hosts} // no action => connect
+	dv := def.View()
+	if !strings.Contains(dv, "enter connect") {
+		t.Errorf("default footer should say connect; got:\n%s", dv)
+	}
+	if strings.Contains(dv, "mode") {
+		t.Errorf("connect mode should not add a mode indicator; got:\n%s", dv)
+	}
+}
 
 // applyFilter must not mutate the master host list. Regression test for the
 // `out := m.hosts[:0]` aliasing bug, where filtering overwrote m.hosts in

@@ -7,7 +7,7 @@
 //	sshvault list                  print all hosts (script-friendly)
 //	sshvault add                   add a new host (interactive prompts)
 //	sshvault remove <alias>        remove a host
-//	sshvault copy-id <alias>       install your public key on a registered host
+//	sshvault copy-id [alias]       install your public key on a host (menu if no alias)
 //	sshvault edit                  open hosts.toml in $EDITOR
 //	sshvault pull                  git pull the vault repo
 //	sshvault push [msg]            git add+commit+push the vault repo
@@ -245,9 +245,12 @@ func addHost() error {
 	return nil
 }
 
-// copyIDCmd installs the local public key on an already-registered host.
+// copyIDCmd installs the local public key on a registered host. With no alias
+// it opens the picker so you can choose the host from the menu.
 //
-//	sshvault copy-id <alias> [--key ~/.ssh/id_ed25519.pub]
+//	sshvault copy-id                        pick a host from the menu
+//	sshvault copy-id <alias>                install on that host directly
+//	sshvault copy-id [<alias>] --key PATH   use a specific public key
 func copyIDCmd(args []string) error {
 	var alias, keyPath string
 	for i := 0; i < len(args); i++ {
@@ -268,17 +271,29 @@ func copyIDCmd(args []string) error {
 			alias = args[i]
 		}
 	}
-	if alias == "" {
-		return fmt.Errorf("usage: sshvault copy-id <alias> [--key path]")
-	}
 
 	f, err := loadFile()
 	if err != nil {
 		return err
 	}
-	h, ok := f.Find(alias)
-	if !ok {
-		return fmt.Errorf("host %q not found — run `sshvault list`", alias)
+
+	var h vault.Host
+	if alias == "" {
+		// No alias: let the user pick from the menu.
+		picked, err := ui.Pick(f.List(), "copy key")
+		if err != nil {
+			return err
+		}
+		if picked == nil {
+			return nil // user quit — nothing to do
+		}
+		h = *picked
+	} else {
+		found, ok := f.Find(alias)
+		if !ok {
+			return fmt.Errorf("host %q not found — run `sshvault list`", alias)
+		}
+		h = found
 	}
 
 	if keyPath == "" {
@@ -363,7 +378,7 @@ commands:
   list              list all hosts
   add               add a new host (interactive)
   remove <alias>    remove a host
-  copy-id <alias>   install your public key on a registered host [--key PATH]
+  copy-id [alias]   install your public key on a host (menu if no alias) [--key PATH]
   edit              open hosts.toml in $EDITOR
   pull              git pull the vault
   push [msg]        git add+commit+push

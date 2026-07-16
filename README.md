@@ -44,7 +44,8 @@ sshvault             # TUI menu
 sshvault prod-web    # direct connect
 sshvault list        # list all hosts
 sshvault add         # add a host
-sshvault copy-id prod-web   # install your public key on a registered host
+sshvault copy-id            # pick a host from the menu, install your public key
+sshvault copy-id prod-web   # …or name the host directly
 sshvault edit        # edit hosts.toml in $EDITOR
 sshvault push "msg"  # commit + push
 sshvault pull        # pull from Gitea
@@ -97,7 +98,7 @@ sshvault add
 # (alias, user, host, port, desc, tags)
 
 # 2. install your public key on it (asks for the password once)
-sshvault copy-id deploy-box
+sshvault copy-id deploy-box     # or just `sshvault copy-id` and pick from the menu
 #   - looks the host up in hosts.toml (user/host/port)
 #   - uses ~/.ssh/id_ed25519.pub by default; override with --key PATH
 #   - prefers ssh-copy-id, falls back to a manual append over ssh
