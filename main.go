@@ -7,6 +7,7 @@
 //	sshvault list                  print all hosts (script-friendly)
 //	sshvault add                   add a new host (interactive prompts)
 //	sshvault remove <alias>        remove a host
+//	sshvault copy-id <alias>       install your public key on a registered host
 //	sshvault edit                  open hosts.toml in $EDITOR
 //	sshvault pull                  git pull the vault repo
 //	sshvault push [msg]            git add+commit+push the vault repo
@@ -34,7 +35,7 @@ import (
 
 // version is a var (not a const) so release builds can stamp it via
 // -ldflags "-X main.version=...". See the Makefile.
-var version = "1.0.0"
+var version = "1.1.0"
 
 func main() {
 	flag.Usage = usage
@@ -101,6 +102,11 @@ func main() {
 		}
 		if err := removeHost(rest[0]); err != nil {
 			die("remove: %v", err)
+		}
+
+	case "copy-id", "copyid", "install-key":
+		if err := copyIDCmd(rest); err != nil {
+			die("copy-id: %v", err)
 		}
 
 	case "edit":
@@ -239,6 +245,72 @@ func addHost() error {
 	return nil
 }
 
+// copyIDCmd installs the local public key on an already-registered host.
+//
+//	sshvault copy-id <alias> [--key ~/.ssh/id_ed25519.pub]
+func copyIDCmd(args []string) error {
+	var alias, keyPath string
+	for i := 0; i < len(args); i++ {
+		switch args[i] {
+		case "--key", "-i":
+			if i+1 >= len(args) {
+				return fmt.Errorf("--key needs a path")
+			}
+			keyPath = args[i+1]
+			i++
+		default:
+			if strings.HasPrefix(args[i], "-") {
+				return fmt.Errorf("unknown flag %q", args[i])
+			}
+			if alias != "" {
+				return fmt.Errorf("unexpected argument %q", args[i])
+			}
+			alias = args[i]
+		}
+	}
+	if alias == "" {
+		return fmt.Errorf("usage: sshvault copy-id <alias> [--key path]")
+	}
+
+	f, err := loadFile()
+	if err != nil {
+		return err
+	}
+	h, ok := f.Find(alias)
+	if !ok {
+		return fmt.Errorf("host %q not found — run `sshvault list`", alias)
+	}
+
+	if keyPath == "" {
+		keyPath, err = defaultPubKey()
+		if err != nil {
+			return err
+		}
+	}
+
+	fmt.Printf("installing %s on %s (%s)…\n", filepath.Base(keyPath), h.Alias, h.Target())
+	if err := run.CopyID(h, keyPath); err != nil {
+		return err
+	}
+	fmt.Printf("✓ key installed on %s — try: sshvault %s\n", h.Alias, h.Alias)
+	return nil
+}
+
+// defaultPubKey returns the first existing public key in ~/.ssh.
+func defaultPubKey() (string, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	for _, name := range []string{"id_ed25519.pub", "id_rsa.pub", "id_ecdsa.pub"} {
+		p := filepath.Join(home, ".ssh", name)
+		if _, err := os.Stat(p); err == nil {
+			return p, nil
+		}
+	}
+	return "", fmt.Errorf("no public key in ~/.ssh (id_ed25519.pub, id_rsa.pub, id_ecdsa.pub) — generate one with ssh-keygen, or pass --key")
+}
+
 func removeHost(alias string) error {
 	f, err := loadFile()
 	if err != nil {
@@ -291,6 +363,7 @@ commands:
   list              list all hosts
   add               add a new host (interactive)
   remove <alias>    remove a host
+  copy-id <alias>   install your public key on a registered host [--key PATH]
   edit              open hosts.toml in $EDITOR
   pull              git pull the vault
   push [msg]        git add+commit+push

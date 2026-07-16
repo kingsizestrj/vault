@@ -44,6 +44,7 @@ sshvault             # TUI menu
 sshvault prod-web    # direct connect
 sshvault list        # list all hosts
 sshvault add         # add a host
+sshvault copy-id prod-web   # install your public key on a registered host
 sshvault edit        # edit hosts.toml in $EDITOR
 sshvault push "msg"  # commit + push
 sshvault pull        # pull from Gitea
@@ -91,16 +92,22 @@ sshvault pull        # pull from Gitea
 ## Setting up a new server (after the initial setup)
 
 ```bash
-# 1. add the server's public key (asks for password once)
-./scripts/remote/install-key-remote.sh deploy@10.0.1.10
-
-# 2. add the host
+# 1. add the host
 sshvault add
 # (alias, user, host, port, desc, tags)
+
+# 2. install your public key on it (asks for the password once)
+sshvault copy-id deploy-box
+#   - looks the host up in hosts.toml (user/host/port)
+#   - uses ~/.ssh/id_ed25519.pub by default; override with --key PATH
+#   - prefers ssh-copy-id, falls back to a manual append over ssh
 
 # 3. sync
 sshvault push "added new server"
 ```
+
+> The standalone `./scripts/remote/install-key-remote.sh user@host` still works
+> for a host that isn't registered yet.
 
 ## Setting up a new machine (after the first)
 
